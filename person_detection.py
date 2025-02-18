@@ -43,7 +43,7 @@ def display_fps(frame, fps, position=(10, 30), color=(255, 255, 255), border_col
     cv2.putText(frame, f"FPS: {fps:.0f}", position, cv2.FONT_HERSHEY_SIMPLEX, 1, border_color, 4, cv2.LINE_AA)
     cv2.putText(frame, f"FPS: {fps:.0f}", position, cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2, cv2.LINE_AA)
 
-def get_bounding_box_centers(results):
+def box_centers(results):
     """
     Extrai as coordenadas do ponto central de cada bounding box detectada.
 
@@ -53,10 +53,20 @@ def get_bounding_box_centers(results):
     centers = []
 
     for result in results:
-        boxes = result.boxes  # Obtém as bounding boxes detectadas
+        if not hasattr(result, 'boxes') or result.boxes is None or len(result.boxes) == 0:
+            continue  # Pula se não houver bounding boxes detectadas
         
-        for box in boxes:
-            x_min, y_min, x_max, y_max = box.xyxy[0]  # Coordenadas da caixa (canto superior esquerdo e inferior direito)
+        for box in result.boxes:
+            if not hasattr(box, 'xyxy') or box.xyxy is None or len(box.xyxy) == 0:
+                continue  # Pula se as coordenadas não forem encontradas
+            
+            # Move o tensor para a CPU antes de converter para NumPy
+            coords = box.xyxy[0].cpu().numpy()  
+            
+            if len(coords) < 4:
+                continue  # Evita erro caso falte algum valor
+
+            x_min, y_min, x_max, y_max = coords[:4]  # Obtém as coordenadas corretamente
             
             # Calcula o ponto central
             x_center = (x_min + x_max) / 2
@@ -66,46 +76,97 @@ def get_bounding_box_centers(results):
 
     return centers
 
-def draw_bounding_boxes(frame, results, color=(0, 255, 0), thickness=2, font_scale=0.5):
+def draw_centers(frame, centers, color=(0, 255, 0), radius=5, thickness=-1):
     """
-    Desenha as bounding boxes detectadas no frame.
+    Desenha os pontos centrais das bounding boxes no frame.
 
-    :param frame: Frame da câmera onde as boxes serão desenhadas.
-    :param results: Resultados da predição do modelo YOLO.
-    :param color: Cor da bounding box (padrão: verde).
-    :param thickness: Espessura da linha da bounding box.
-    :param font_scale: Tamanho do texto da classe.
-    :return: Frame com as bounding boxes desenhadas.
+    :param frame: Imagem do frame capturado.
+    :param centers: Lista de tuplas (x_center, y_center) das bounding boxes.
+    :param color: Cor do ponto central (padrão: verde).
+    :param radius: Raio do círculo desenhado.
+    :param thickness: Espessura do círculo (-1 preenche o círculo).
+    :return: Frame com os pontos centrais desenhados e o último centro detectado (ou None).
     """
-    for result in results:
-        boxes = result.boxes  # Obtém as bounding boxes detectadas
-        names = result.names  # Obtém os nomes das classes
+    last_x, last_y = None, None  # Inicializa variáveis para evitar erro
 
-        for box in boxes:
-            x_min, y_min, x_max, y_max = map(int, box.xyxy[0])  # Coordenadas inteiras da bounding box
-            class_id = int(box.cls[0])  # ID da classe detectada
-            confidence = float(box.conf[0])  # Confiança da detecção
-            label = f"{names[class_id]}: {confidence:.2f}"  # Nome da classe + confiança
-            
-            # Desenhar a bounding box
-            cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), color, thickness)
+    try:
+        for (x, y) in centers:
+            cv2.circle(frame, (x, y), radius, color, thickness)
+            last_x, last_y = x, y  # Atualiza com o último centro detectado
+        
+        if last_x is None or last_y is None:
+            raise ValueError("Nenhuma bounding box detectada")
 
-            # Posição do texto (acima da bounding box)
-            text_x, text_y = x_min, y_min - 10 if y_min - 10 > 10 else y_min + 10
+    except Exception as e:
+        print(f"[Aviso] Nenhuma bounding box detectada no frame: {e}")
+        last_x, last_y = None, None  # Evita erro se nenhuma detecção for feita
 
-            # Fundo do texto (para melhorar a visibilidade)
-            cv2.rectangle(frame, (x_min, text_y - 5), (x_min + len(label) * 10, text_y + 5), (0, 0, 0), -1)
+    return frame, last_x, last_y
 
-            # Texto da classe + confiança
-            cv2.putText(frame, label, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 
-                        font_scale, (255, 255, 255), 1, cv2.LINE_AA)
-    
-    return frame
+class JumpDetector:
+    def __init__(self, threshold=30, persistence=15):
+        """
+        Inicializa o detector de pulos.
+
+        :param threshold: Valor mínimo de variação no eixo Y para considerar um pulo.
+        :param persistence: Quantidade de frames que a mensagem "PULO!" deve ficar visível.
+        """
+        self.previous_y = None
+        self.threshold = threshold
+        self.jump_counter = 0
+        self.persistence = persistence  # Define quantos frames a mensagem "PULO!" ficará na tela
+
+    def detect_jump(self, y_center):
+        """
+        Detecta se houve um pulo com base na posição Y do centro da bounding box.
+
+        :param y_center: Coordenada Y atual do centro da bounding box.
+        :return: True se um pulo for detectado, False caso contrário.
+        """
+        if self.previous_y is None:
+            self.previous_y = y_center
+            return False  # Primeiro frame, sem referência para comparar
+        
+        jump_detected = self.previous_y - y_center > self.threshold  # Variação Y significativa para cima
+
+        if jump_detected:
+            self.jump_counter = self.persistence  # Mantém "PULO!" visível por X frames
+
+        # Atualiza a posição Y anterior
+        self.previous_y = y_center
+
+        return jump_detected
+
+    def should_display_jump_text(self):
+        """ Verifica se ainda devemos exibir "PULO!" no vídeo """
+        if self.jump_counter > 0:
+            self.jump_counter -= 1
+            return True
+        return False
+
+
+def draw_jump_text(frame, jump_detector):
+    """
+    Exibe "PULO!" no canto superior direito do frame quando um pulo for detectado.
+    """
+    if jump_detector.should_display_jump_text():
+        text = "PULO!"
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        position = (frame.shape[1] - 150, 50)  # Canto superior direito
+        color = (0, 0, 255)  # Vermelho
+        thickness = 2
+
+        cv2.putText(frame, text, position, font, 1, (0, 0, 0), 4, cv2.LINE_AA)  # Borda preta
+        cv2.putText(frame, text, position, font, 1, color, thickness, cv2.LINE_AA)  # Texto vermelho
+
+
 
 def main():
     model = YOLO('yolo11n.pt')
     cap = initialize_camera(camera_id=0, width=640, height=480)
     prev_time = 0
+    # Inicializa o detector de pulos
+    jump_detector = JumpDetector(threshold=50, persistence=30)
 
     # Define a resolução desejada com proporção 9:16
     width, height = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -123,11 +184,20 @@ def main():
             frame = crop_center(frame, target_width, target_height)
 
             fps, prev_time = calculate_fps(prev_time)
-            #results = process_frame(model, frame)
-            annotated_frame = draw_bounding_boxes(frame, results)
-            bounding_box_centers = get_bounding_box_centers(results)
+            results = process_frame(model, frame)
+            bounding_box_centers = box_centers(results)
             annotated_frame = results[0].plot()
+            annotated_frame, x, y = draw_centers(annotated_frame, bounding_box_centers)
 
+            #print(f"Centro da bounding box: ({x}, {y})")
+            
+            if x is not None and y is not None:                
+                # Detecta pulo e atualiza o estado do JumpDetector
+                jump_detector.detect_jump(y)
+
+            # Exibe "PULO!" se um pulo for detectado
+            draw_jump_text(annotated_frame, jump_detector)
+            
             display_fps(annotated_frame, fps)
             cv2.imshow('Deteccao ao Vivo', annotated_frame)
 
