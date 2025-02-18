@@ -27,37 +27,46 @@ while i < 3:
     time.sleep(1)
     i += 1
 
-# Função para verificar se a imagem está na tela
-def imagem_na_tela(imagem_path, tempo_limite):
+'''
+# Função para verificar se a imagem está na tela e pressionar uma tecla
+def imagem_na_tela_e_acionar_tecla(tempo_limite, tecla):
     start_time = time.time()
+
+    # Inicializa a variável para armazenar a imagem capturada a cada 10 segundos
+    imagem_procurada = None
+
     while True:
-        # Tirar uma captura de tela
+        # Captura uma imagem a cada 10 segundos
+        time.sleep(10)
         screenshot = pyautogui.screenshot()
         screenshot = np.array(screenshot)
         screenshot = cv2.cvtColor(screenshot, cv2.COLOR_RGB2BGR)
-        
-        # Carregar a imagem que estamos procurando
-        imagem_procurada = cv2.imread(imagem_path)
-        
-        # Usar a função matchTemplate do OpenCV para encontrar a imagem
+
+        # Se for a primeira captura, define como a imagem inicial
+        if imagem_procurada is None:
+            imagem_procurada = screenshot
+            print("Imagem inicial capturada. Aguardando a detecção...")
+
+        # Usar a função matchTemplate do OpenCV para comparar a imagem
         resultado = cv2.matchTemplate(screenshot, imagem_procurada, cv2.TM_CCOEFF_NORMED)
         min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(resultado)
         
         # Se a similaridade for maior que 0.9, consideramos que a imagem foi encontrada
-        if max_val > 0.9:
+        if max_val == 1:
             print("Imagem encontrada!")
             if time.time() - start_time > tempo_limite:
                 print(f"A imagem ficou visível por {tempo_limite} segundos!")
+                # Ação: Pressionar a tecla
+                pyautogui.press(tecla)
+                print(f"Tecla '{tecla}' pressionada!")
                 break
         else:
             # Caso a imagem não seja encontrada, resetamos o tempo
             start_time = time.time()
 
-        # Pausa de 1 segundo antes de tentar novamente
-        time.sleep(1)
-
 # Exemplo de uso
-imagem_path = "caminho_para_a_imagem.png"  # Caminho da imagem que você quer detectar
-tempo_limite = 5  # Limite de tempo em segundos
+tempo_limite = 10  # Limite de tempo em segundos
+tecla = 'f11'   # A tecla que será pressionada
 
-imagem_na_tela(imagem_path, tempo_limite)
+imagem_na_tela_e_acionar_tecla(tempo_limite, tecla)
+'''
