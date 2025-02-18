@@ -3,6 +3,7 @@ from ultralytics import YOLO
 import time
 import numpy as np
 from collections import deque
+import matplotlib.pyplot as plt
 
 def initialize_camera(camera_id=0, width=640, height=480):
     cap = cv2.VideoCapture(camera_id)
@@ -38,6 +39,29 @@ def display_fps(frame, fps, position=(10, 30), color=(255, 255, 255), border_col
     cv2.putText(frame, f"FPS: {fps:.0f}", position, cv2.FONT_HERSHEY_SIMPLEX, 1, border_color, 4, cv2.LINE_AA)
     cv2.putText(frame, f"FPS: {fps:.0f}", position, cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2, cv2.LINE_AA)
 
+# Listas para armazenar os dados
+y_positions = []
+timestamps = []
+jump_timestamps = []
+
+def plot_y_positions():
+    """
+    Plota um gráfico Scatter da posição Y ao longo do tempo, destacando os pulos.
+    """
+    global timestamps, y_positions, jump_timestamps
+
+    plt.figure(figsize=(10, 5))
+    plt.scatter(timestamps, y_positions, color='blue', label="Posição Y")  # Posição normal
+    plt.scatter(jump_timestamps, [y_positions[timestamps.index(t)] for t in jump_timestamps],
+                color='red', label="Pulo detectado")  # Pulos em vermelho
+
+    plt.xlabel("Tempo (frames)")
+    plt.ylabel("Posição Y")
+    plt.title("Posição Y ao longo do tempo")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
 def box_centers(results):
     centers = []
     for result in results:
@@ -68,57 +92,65 @@ def draw_centers(frame, centers, color=(0, 255, 0), radius=5, thickness=-1):
         last_x, last_y = None, None  
     return frame, last_x, last_y
 
-class JumpDetector:
-    def __init__(self, threshold=35, persistence=20, smoothing=15, min_frames=2):
-        self.previous_y = None
-        self.threshold = threshold
-        self.jump_counter = 0
-        self.persistence = persistence
-        self.smoothing = smoothing
-        self.min_frames = min_frames
-        self.y_history = deque(maxlen=smoothing)
-        self.jump_frame_count = 0
+# Lista para armazenar os últimos valores de Y
+y_history = deque(maxlen=10)  # Usa os últimos 10 valores para suavizar a detecção
+jump_counter = 0  # Controla a exibição de "PULO!"
 
-    def detect_jump(self, y_center):
-        self.y_history.append(y_center)
-        if len(self.y_history) < self.smoothing:
-            return False  
-        smoothed_y = np.mean(self.y_history)
+def detect_jump(y_center, threshold=35, min_frames=2, persistence=20):
+    """
+    Detecta pulos usando uma média móvel simples.
+    
+    :param y_center: Coordenada Y atual do centro da bounding box.
+    :param threshold: Diferença mínima necessária para considerar um pulo.
+    :param min_frames: Número mínimo de frames consecutivos antes de confirmar um pulo.
+    :param persistence: Quantidade de frames que "PULO!" ficará visível.
+    :return: True se um pulo for detectado, False caso contrário.
+    """
+    global jump_counter
 
-        if self.previous_y is None:
-            self.previous_y = smoothed_y
-            return False  
+    # Adiciona a nova posição Y ao histórico
+    y_history.append(y_center)
 
-        if self.previous_y - smoothed_y > self.threshold:
-            self.jump_frame_count += 1  
-        else:
-            self.jump_frame_count = 0  
-
-        jump_detected = self.jump_frame_count >= self.min_frames
-
-        if jump_detected:
-            self.jump_counter = self.persistence  
-            print("🟢 PULO DETECTADO!")
-
-        self.previous_y = smoothed_y
-        return jump_detected
-
-    def should_display_jump_text(self):
-        if self.jump_counter > 0:
-            self.jump_counter -= 1
-            return True
+    # Aguarda até ter dados suficientes
+    if len(y_history) < y_history.maxlen:
         return False
 
-def draw_jump_text(frame, jump_detector):
-    if jump_detector.should_display_jump_text():
+    # Calcula a média dos últimos valores Y
+    smoothed_y = np.mean(y_history)
+
+    # Obtém a posição Y anterior (o primeiro valor da lista)
+    previous_y = y_history[0]
+
+    # Detecta pulo se houver uma variação grande para cima
+    if previous_y - smoothed_y > threshold:
+        jump_counter = persistence  # Mantém "PULO!" visível por alguns frames
+        return True
+
+    return False
+
+def should_display_jump_text():
+    """
+    Controla a exibição da mensagem "PULO!".
+    """
+    global jump_counter
+    if jump_counter > 0:
+        jump_counter -= 1
+        return True
+    return False
+
+def draw_jump_text(frame):
+    """
+    Desenha "PULO!" no canto superior direito do frame.
+    """
+    if should_display_jump_text():
         text = "PULO!"
         font = cv2.FONT_HERSHEY_SIMPLEX
         position = (frame.shape[1] - 150, 50)  
         color = (0, 0, 255)  
         thickness = 2
         cv2.putText(frame, text, position, font, 1, (0, 0, 0), 4, cv2.LINE_AA)  
-        cv2.putText(frame, text, position, font, 1, color, thickness, cv2.LINE_AA)  
-
+        cv2.putText(frame, text, position, font, 1, color, thickness, cv2.LINE_AA)
+        
 # Variável global para ativar/desativar o grid
 grid_enabled = False
 
@@ -160,10 +192,8 @@ def main():
     width, height = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     target_width = min(width, int(height * (9 / 16)))  # Ajusta para manter a proporção
     target_height = min(height, int(width * (16 / 9)))  # Garante que não extrapole
-
     
     prev_time = 0
-    jump_detector = JumpDetector(threshold=10, persistence=20)
 
     try:
         while True:
@@ -183,14 +213,17 @@ def main():
             annotated_frame, x, y = draw_centers(annotated_frame, bounding_box_centers)
             annotated_frame = draw_grid(annotated_frame)
             
-        
+
             if x is not None and y is not None:
-                jump_detected = jump_detector.detect_jump(y)
-                if jump_detected:
+                timestamps.append(len(timestamps))  # Cada frame é um ponto no tempo
+                y_positions.append(y)
+
+                if detect_jump(y):
+                    jump_timestamps.append(len(timestamps) - 1)  # Marca o frame do pulo
                     print(f"PULO DETECTADO em Y={y}")
+
+            draw_jump_text(annotated_frame)
             
-            
-            draw_jump_text(annotated_frame, jump_detector)
             display_fps(annotated_frame, fps)
             cv2.imshow('Detecção ao Vivo', annotated_frame)
 
@@ -207,6 +240,9 @@ def main():
     finally:
         cap.release()
         cv2.destroyAllWindows()
+
+        # Plota o gráfico da posição Y ao longo do tempo
+        plot_y_positions()
 
 if __name__ == "__main__":
     main()
