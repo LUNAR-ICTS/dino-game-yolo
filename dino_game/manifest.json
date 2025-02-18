@@ -1,0 +1,28 @@
+{
+   "action": {
+      "default_icon": {
+         "24": "img/24x24.png",
+         "32": "img/32x32.png"
+      },
+      "default_popup": "index.html",
+      "default_title": "2048!"
+   },
+   "background": {
+      "service_worker": "update.js"
+   },
+   "description": "Play Chrome Dino from any tab!",
+   "homepage_url": "https://w3technic.com/games/chrome-dino",
+   "icons": {
+      "128": "img/128x128.png",
+      "16": "img/16x16.png",
+      "48": "img/48x48.png"
+   },
+   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmS+smProg1PcfqzO5B/jfezT916Fkk/j7mMYf9zfofWmbF79+wU7ePxpt6pfEkJI7aUE31X3glHa0p7qI1ffEv7UeI0tpHHNj5lr4dbZKKEGbMj7CnCKnh/RQ46g49QDnEB1y5O0EOEEfZvl4cPAWI6wrPm5d8G5Z1YxdpP7NFiFKfoUl8Ot9psS+2WtjRyQOn4FfA7wJ/CigYweN0hfVWeM0HF5C2i05D5+BK8TEuW/WbTR/1tKnbEDxUBmmCpMStPIaKCuJcopOiKbr7nNlqFklJSfGIdj/hhjDB1vqgygQmdEdYhU3EZX8Xmi44jb4xuLJlsYgYrZzYapzyu37wIDAQAB",
+   "manifest_version": 3,
+   "name": "Chrome Dino Offline Game",
+   "offline_enabled": true,
+   "options_page": "index.html",
+   "update_url": "https://clients2.google.com/service/update2/crx",
+   "version": "1.0.1",
+   "version_name": "1.0.1"
+}
