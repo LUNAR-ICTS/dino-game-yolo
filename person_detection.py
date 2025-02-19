@@ -92,37 +92,37 @@ def draw_centers(frame, centers, color=(0, 255, 0), radius=5, thickness=-1):
         last_x, last_y = None, None  
     return frame, last_x, last_y
 
-# Lista para armazenar os últimos valores de Y
-y_history = deque(maxlen=10)  # Usa os últimos 10 valores para suavizar a detecção
-jump_counter = 0  # Controla a exibição de "PULO!"
+# Variáveis globais para armazenar os dados da média móvel
+y_history = deque(maxlen=10)  # Janela deslizante de 10 frames
+jump_counter = 0  # Controla a exibição do "PULO!"
 
-def detect_jump(y_center, threshold=35, min_frames=2, persistence=20):
+def detect_jump(y_center, std_multiplier=3, persistence=20):
     """
-    Detecta pulos usando uma média móvel simples.
-    
+    Detecta pulos usando média móvel e desvio padrão.
+
     :param y_center: Coordenada Y atual do centro da bounding box.
-    :param threshold: Diferença mínima necessária para considerar um pulo.
-    :param min_frames: Número mínimo de frames consecutivos antes de confirmar um pulo.
+    :param std_multiplier: Multiplicador para definir o limiar baseado no desvio padrão.
     :param persistence: Quantidade de frames que "PULO!" ficará visível.
     :return: True se um pulo for detectado, False caso contrário.
     """
     global jump_counter
 
-    # Adiciona a nova posição Y ao histórico
+    # Adiciona o novo valor ao histórico
     y_history.append(y_center)
 
-    # Aguarda até ter dados suficientes
+    # Espera até ter dados suficientes
     if len(y_history) < y_history.maxlen:
         return False
 
-    # Calcula a média dos últimos valores Y
-    smoothed_y = np.mean(y_history)
+    # Calcula média móvel e desvio padrão dos últimos valores de Y
+    mean_y = np.mean(y_history)
+    std_y = np.std(y_history)
 
-    # Obtém a posição Y anterior (o primeiro valor da lista)
-    previous_y = y_history[0]
+    # Define um limiar dinâmico para detecção de pulo
+    threshold = mean_y - (std_multiplier * std_y)  # Quanto menor que a média, mais provável ser pulo
 
-    # Detecta pulo se houver uma variação grande para cima
-    if previous_y - smoothed_y > threshold:
+    # Se Y cair subitamente abaixo do limiar, detecta pulo
+    if y_center < threshold:
         jump_counter = persistence  # Mantém "PULO!" visível por alguns frames
         return True
 
@@ -186,7 +186,7 @@ def toggle_grid():
 
 def main():
     model = YOLO('yolo11n.pt')
-    cap = initialize_camera(camera_id=0, width=640, height=480)
+    cap = initialize_camera(camera_id=1, width=640, height=480)
     
     # Define a resolução desejada com proporção 9:16
     width, height = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
