@@ -5,12 +5,21 @@ import numpy as np
 from collections import deque
 import matplotlib.pyplot as plt
 
+jump_line_y = None  # Inicializa a variável global da linha de pulo
+jump_detected = False  # Inicializa o estado do pulo
+previously_above_line = False  # Controle do estado anterior
+y_positions = []
+timestamps = []
+jump_timestamps = []
+
 def initialize_camera(camera_id=0, width=640, height=480):
+    global previously_above_line
     cap = cv2.VideoCapture(camera_id)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
     if not cap.isOpened():
         raise ValueError("Não foi possível abrir a câmera.")
+    previously_above_line = False  # Inicializa corretamente
     return cap
 
 def crop_center(frame, target_width, target_height):
@@ -31,7 +40,7 @@ def calculate_fps(prev_time):
     fps = 1 / (current_time - prev_time) if prev_time else 0
     return fps, current_time
 
-def process_frame(model, frame, conf=0.5, device=0, half=True):
+def process_frame(model, frame, conf=0.5, device='cuda', half=True):
     results = model.predict(source=frame, conf=conf, device=device, half=half)
     return results
 
@@ -92,65 +101,42 @@ def draw_centers(frame, centers, color=(0, 255, 0), radius=5, thickness=-1):
         last_x, last_y = None, None  
     return frame, last_x, last_y
 
-# Variáveis globais para armazenar os dados da média móvel
-y_history = deque(maxlen=10)  # Janela deslizante de 10 frames
-jump_counter = 0  # Controla a exibição do "PULO!"
-
-def detect_jump(y_center, std_multiplier=3, persistence=20):
-    """
-    Detecta pulos usando média móvel e desvio padrão.
-
-    :param y_center: Coordenada Y atual do centro da bounding box.
-    :param std_multiplier: Multiplicador para definir o limiar baseado no desvio padrão.
-    :param persistence: Quantidade de frames que "PULO!" ficará visível.
-    :return: True se um pulo for detectado, False caso contrário.
-    """
-    global jump_counter
-
-    # Adiciona o novo valor ao histórico
-    y_history.append(y_center)
-
-    # Espera até ter dados suficientes
-    if len(y_history) < y_history.maxlen:
+def on_mouse_click(event, x, y, flags, param):
+    global jump_line_y
+    if event == cv2.EVENT_LBUTTONDOWN:
+        jump_line_y = y - 10  # Define a linha 10 pixels acima do clique
+        print(f"Linha de pulo definida em Y={jump_line_y}")
+        
+def detect_jump(y_center):
+    global jump_detected, jump_line_y, previously_above_line, timestamps, y_positions, jump_timestamps
+    
+    if jump_line_y is None:
         return False
-
-    # Calcula média móvel e desvio padrão dos últimos valores de Y
-    mean_y = np.mean(y_history)
-    std_y = np.std(y_history)
-
-    # Define um limiar dinâmico para detecção de pulo
-    threshold = mean_y - (std_multiplier * std_y)  # Quanto menor que a média, mais provável ser pulo
-
-    # Se Y cair subitamente abaixo do limiar, detecta pulo
-    if y_center < threshold:
-        jump_counter = persistence  # Mantém "PULO!" visível por alguns frames
-        return True
-
+    
+    timestamps.append(len(timestamps))  # Adiciona um novo ponto no tempo
+    y_positions.append(y_center)  # Adiciona a posição Y atual
+    
+    if y_center < jump_line_y:
+        if not previously_above_line:
+            jump_detected = True
+            previously_above_line = True
+            jump_timestamps.append(len(timestamps) - 1)  # Registra o pulo no gráfico
+            return True
+    else:
+        previously_above_line = False
+        jump_detected = False  # Reset para permitir novas detecções
+    
     return False
 
-def should_display_jump_text():
-    """
-    Controla a exibição da mensagem "PULO!".
-    """
-    global jump_counter
-    if jump_counter > 0:
-        jump_counter -= 1
-        return True
-    return False
+def draw_jump_line(frame):
+    global jump_line_y
+    if jump_line_y is not None:
+        cv2.line(frame, (0, jump_line_y), (frame.shape[1], jump_line_y), (0, 0, 255), 2)
 
 def draw_jump_text(frame):
-    """
-    Desenha "PULO!" no canto superior direito do frame.
-    """
-    if should_display_jump_text():
-        text = "PULO!"
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        position = (frame.shape[1] - 150, 50)  
-        color = (0, 0, 255)  
-        thickness = 2
-        cv2.putText(frame, text, position, font, 1, (0, 0, 0), 4, cv2.LINE_AA)  
-        cv2.putText(frame, text, position, font, 1, color, thickness, cv2.LINE_AA)
-        
+    if jump_detected:
+        cv2.putText(frame, "PULO!", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+
 # Variável global para ativar/desativar o grid
 grid_enabled = False
 
@@ -161,6 +147,8 @@ def draw_grid(frame, spacing=50):
     :param frame: Frame da câmera.
     :param spacing: Espaçamento entre as linhas do grid.
     :return: Frame com o grid desenhado.
+    
+    @ Cesarquatro
     """
     global grid_enabled
     if not grid_enabled:
@@ -187,7 +175,9 @@ def toggle_grid():
 def main():
     model = YOLO('yolo11n.pt')
     cap = initialize_camera(camera_id=1, width=640, height=480)
-    
+    global jump_detected, jump_line_y
+    cv2.namedWindow("Live Detection")
+    cv2.setMouseCallback("Live Detection", on_mouse_click)
     # Define a resolução desejada com proporção 9:16
     width, height = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     target_width = min(width, int(height * (9 / 16)))  # Ajusta para manter a proporção
@@ -214,23 +204,26 @@ def main():
             annotated_frame = draw_grid(annotated_frame)
             
 
-            if x is not None and y is not None:
-                timestamps.append(len(timestamps))  # Cada frame é um ponto no tempo
-                y_positions.append(y)
-
+            for _, y in bounding_box_centers:
                 if detect_jump(y):
-                    jump_timestamps.append(len(timestamps) - 1)  # Marca o frame do pulo
                     print(f"PULO DETECTADO em Y={y}")
-
+            
+            draw_jump_line(annotated_frame)
             draw_jump_text(annotated_frame)
             
             display_fps(annotated_frame, fps)
-            cv2.imshow('Detecção ao Vivo', annotated_frame)
+            cv2.imshow('Live Detection', annotated_frame)
 
             # Tecla para alternar o grid (G)
             key = cv2.waitKey(1) & 0xFF
             if key == ord('g'):
                 toggle_grid()
+            
+            elif key == ord('r'):
+                jump_line_y = None
+                jump_detected = False
+                print("Linha de pulo resetada!")
+                
             elif key == ord('q'):  # Fecha a aplicação se apertar 'Q'
                 break
 
