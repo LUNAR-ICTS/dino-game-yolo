@@ -4,6 +4,8 @@ import time
 import numpy as np
 from collections import deque
 import matplotlib.pyplot as plt
+import pyautogui
+
 
 jump_line_y = None  # Inicializa a variável global da linha de pulo
 jump_detected = False  # Inicializa o estado do pulo
@@ -77,15 +79,14 @@ def box_centers(results):
         if not hasattr(result, 'boxes') or result.boxes is None or len(result.boxes) == 0:
             continue  
         for box in result.boxes:
-            if not hasattr(box, 'xyxy') or box.xyxy is None or len(box.xyxy) == 0:
-                continue  
-            coords = box.xyxy[0].cpu().numpy()  
-            if len(coords) < 4:
-                continue
-            x_min, y_min, x_max, y_max = coords[:4]
-            x_center = (x_min + x_max) / 2
-            y_center = (y_min + y_max) / 2
-            centers.append((int(x_center), int(y_center)))
+            if box.cls[0] == 0:  # Filtra apenas detecções de pessoas (classe 0 no YOLO)
+                coords = box.xyxy[0].cpu().numpy()
+                if len(coords) < 4:
+                    continue
+                x_min, y_min, x_max, y_max = coords[:4]
+                x_center = (x_min + x_max) / 2
+                y_center = (y_min + y_max) / 2
+                centers.append((int(x_center), int(y_center)))
     return centers
 
 def draw_centers(frame, centers, color=(0, 255, 0), radius=5, thickness=-1):
@@ -121,12 +122,18 @@ def detect_jump(y_center):
             jump_detected = True
             previously_above_line = True
             jump_timestamps.append(len(timestamps) - 1)  # Registra o pulo no gráfico
+            pyautogui.keyUp('down')
+            pyautogui.keyDown('up')  # Pressiona a tecla para cima ao detectar um pulo
             return True
     else:
+        if previously_above_line:
+            pyautogui.keyUp('up')
+            pyautogui.keyDown('down')  # Solta a tecla para cima ao parar de detectar o pulo
         previously_above_line = False
         jump_detected = False  # Reset para permitir novas detecções
     
     return False
+
 
 def draw_jump_line(frame):
     global jump_line_y
