@@ -134,7 +134,6 @@ def detect_jump(y_center):
     
     return False
 
-
 def draw_jump_line(frame):
     global jump_line_y
     if jump_line_y is not None:
