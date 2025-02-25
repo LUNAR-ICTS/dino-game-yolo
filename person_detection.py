@@ -14,7 +14,7 @@ y_positions = []
 timestamps = []
 jump_timestamps = []
 
-def initialize_camera(camera_id=0, width=640, height=480):
+def initialize_camera(camera_id=2, width=640, height=480):
     global previously_above_line
     cap = cv2.VideoCapture(camera_id)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
