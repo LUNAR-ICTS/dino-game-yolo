@@ -14,7 +14,7 @@ y_positions = []
 timestamps = []
 jump_timestamps = []
 
-def initialize_camera(camera_id=2, width=640, height=480):
+def initialize_camera(camera_id=0, width=640, height=480):
     global previously_above_line
     cap = cv2.VideoCapture(camera_id)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
@@ -180,7 +180,7 @@ def toggle_grid():
 
 def main():
     model = YOLO('yolo11n.pt')
-    cap = initialize_camera(camera_id=1, width=640, height=480)
+    cap = initialize_camera(camera_id=0, width=1920, height=1080)
     global jump_detected, jump_line_y
     cv2.namedWindow("Live Detection")
     cv2.setMouseCallback("Live Detection", on_mouse_click)
@@ -199,7 +199,7 @@ def main():
                 break
             
             # Aplica o crop central (garantindo valores inteiros)
-            frame = crop_center(frame, target_width, target_height)
+            #frame = crop_center(frame, target_width, target_height)
             
             fps, prev_time = calculate_fps(prev_time)
             
